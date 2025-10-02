@@ -4,6 +4,7 @@ const DYNAMIC_CACHE = "dynamic_v1.0";
 const APP_SHELL = [
   "/",
   "/index.html",
+  "offline.html",
   "/src/index.css",
   "/src/App.js",
   "/src/App.css"
@@ -64,7 +65,7 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => {
           console.warn("[SW] Offline. Respondiendo con recurso de respaldo.");
-          return caches.match("/index.html");
+          return caches.match("/offline.html");
         });
     })
   );
