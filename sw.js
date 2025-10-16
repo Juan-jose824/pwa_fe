@@ -1,4 +1,3 @@
-// sw.js
 const APP_SHELL_CACHE = "appShell_v1.0";
 const DYNAMIC_CACHE = "dynamic_v1.0";
 
@@ -36,71 +35,104 @@ self.addEventListener("fetch", event => {
     caches.match(event.request).then(cacheResp =>
       cacheResp ||
       fetch(event.request)
-        .then(resp => {
-          return caches.open(DYNAMIC_CACHE).then(cache => {
-            cache.put(event.request, resp.clone());
-            return resp;
-          });
-        })
+        .then(resp => caches.open(DYNAMIC_CACHE).then(cache => { cache.put(event.request, resp.clone()); return resp; }))
         .catch(() => caches.match("/offline.html"))
     )
   );
 });
 
-// --- Sincronización ---
-self.addEventListener('sync', event => {
-  if (event.tag === 'sync-posts') {
-    console.log('[SW] Ejecutando sincronización de POSTs...');
+// Sincronización de POSTs y Login
+self.addEventListener("sync", event => {
+  if(event.tag === "sync-posts") {
+    console.log("[SW] Ejecutando sincronización de POSTs...");
     event.waitUntil(syncPendingPosts());
+  } else if(event.tag === "sync-login") {
+    console.log("[SW] Ejecutando sincronización de logins...");
+    event.waitUntil(syncPendingLogins());
   }
 });
 
 async function syncPendingPosts() {
-  return new Promise((resolve, reject) => {
-    const dbReq = indexedDB.open('database', 1);
+  const dbReq = indexedDB.open("database", 1);
+  dbReq.onsuccess = event => {
+    const db = event.target.result;
+    const tx = db.transaction("pendingRequests", "readonly");
+    const store = tx.objectStore("pendingRequests");
 
-    dbReq.onsuccess = event => {
-      const db = event.target.result;
-      const tx = db.transaction('pendingRequests', 'readonly');
-      const store = tx.objectStore('pendingRequests');
-
-      const allPosts = [];
-      store.openCursor().onsuccess = cursorEvent => {
-        const cursor = cursorEvent.target.result;
-        if (cursor) {
-          allPosts.push({ key: cursor.key, value: cursor.value });
-          cursor.continue();
-        } else {
-          // --- Enviar todos los posts secuencialmente ---
-          sendPostsSequentially(db, allPosts).then(resolve).catch(reject);
-        }
-      };
+    const allPosts = [];
+    store.openCursor().onsuccess = cursorEvent => {
+      const cursor = cursorEvent.target.result;
+      if(cursor) {
+        if(cursor.value.type !== "login") allPosts.push({ key: cursor.key, value: cursor.value });
+        cursor.continue();
+      } else {
+        sendPostsSequentially(db, allPosts);
+      }
     };
-
-    dbReq.onerror = reject;
-  });
+  };
 }
 
-// Función para enviar y borrar uno por uno
 async function sendPostsSequentially(db, posts) {
-  for (let post of posts) {
+  for(let post of posts) {
     try {
-      const resp = await fetch('http://localhost:3000/api/post', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const resp = await fetch("http://localhost:3000/api/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(post.value)
       });
-
-      if (resp.ok) {
-        console.log('✅ POST reenviado con éxito');
-        // Borrar cada registro en transacción separada
-        const tx = db.transaction('pendingRequests', 'readwrite');
-        tx.objectStore('pendingRequests').delete(post.key);
-        await tx.complete;
+      if(resp.ok) {
+        console.log("POST reenviado con éxito");
+        const tx = db.transaction("pendingRequests", "readwrite");
+        tx.objectStore("pendingRequests").delete(post.key);
       }
-    } catch (err) {
-      console.error('❌ Error reenviando POST', err);
-    }
+    } catch(err) { console.error("Error reenviando POST", err); }
   }
-  console.log('[SW] Sincronización completada');
+  console.log("[SW] Sincronización de POSTs completada");
 }
+
+async function syncPendingLogins() {
+  const dbReq = indexedDB.open("database", 1);
+  dbReq.onsuccess = event => {
+    const db = event.target.result;
+    const tx = db.transaction("pendingRequests", "readwrite");
+    const store = tx.objectStore("pendingRequests");
+
+    store.openCursor().onsuccess = async cursorEvent => {
+      const cursor = cursorEvent.target.result;
+      if(cursor) {
+        if(cursor.value.type === "login") {
+          try {
+            const resp = await fetch("http://localhost:3000/api/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ usuario: cursor.value.usuario, password: cursor.value.password })
+            });
+            if(resp.ok){
+              await fetch("http://localhost:3000/api/send-push", { method: "POST" });
+              store.delete(cursor.key);
+              console.log("Login reenviado y notificación enviada");
+            }
+          } catch(err) {
+            console.error("Error reenviando login", err);
+          }
+        }
+        cursor.continue();
+      }
+    };
+  };
+}
+
+// Push Notifications
+self.addEventListener("push", event => {
+  const data = event.data ? event.data.json() : {};
+  const options = {
+    body: data.body || "Tienes una nueva notificación 🎉",
+    icon: "src/assets/img/icon3.png",
+    image: "src/assets/img/shogun.jpg",
+    badge: "src/assets/img/icon3.png",
+    vibrate: [200, 100, 200],
+  };
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Hello M*da Faker", options)
+  );
+});
