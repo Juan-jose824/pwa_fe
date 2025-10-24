@@ -3,6 +3,7 @@ const API_URL = "https://pwa-back-k42e.onrender.com";
 const APP_SHELL_CACHE = "appShell_v1.0";
 const DYNAMIC_CACHE = "dynamic_v1.0";
 
+// Asegúrate de que estas rutas existan en "public/assets/img/"
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -16,7 +17,9 @@ self.addEventListener("install", (event) => {
     caches.open(APP_SHELL_CACHE).then(async (cache) => {
       for (const url of APP_SHELL) {
         try {
-          await cache.add(url);
+          // Convertir rutas relativas a absolutas
+          const absoluteUrl = new URL(url, self.location.origin).href;
+          await cache.add(absoluteUrl);
         } catch (err) {
           console.warn(`[SW] No se pudo cachear ${url}:`, err);
         }
@@ -43,18 +46,27 @@ self.addEventListener("activate", (event) => {
 // -------------------- FETCH --------------------
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
   event.respondWith(
-    caches.match(event.request).then((cacheResp) =>
-      cacheResp ||
-      fetch(event.request)
+    caches.match(event.request).then((cacheResp) => {
+      if (cacheResp) return cacheResp;
+
+      return fetch(event.request)
         .then((resp) =>
           caches.open(DYNAMIC_CACHE).then((cache) => {
-            try { cache.put(event.request, resp.clone()); } catch(e) {}
+            // Solo cachear respuestas válidas
+            if (resp && resp.ok) {
+              try {
+                cache.put(event.request, resp.clone());
+              } catch (err) {
+                console.warn("[SW] Cache.put falló:", err);
+              }
+            }
             return resp;
           })
         )
-        .catch(() => caches.match("./index.html"))
-    )
+        .catch(() => caches.match("/index.html"))
+    })
   );
 });
 
@@ -132,7 +144,6 @@ async function syncPendingLogins() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ usuario: cursor.value.usuario })
               });
-
               store.delete(cursor.key);
               console.log("Login reenviado y notificación enviada");
             }
