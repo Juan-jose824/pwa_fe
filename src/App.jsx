@@ -8,13 +8,16 @@ export default function App({ API_URL }) {
   const [mensaje, setMensaje] = useState("");
   const [pendientes, setPendientes] = useState([]);
 
-  // Inicializar DB
+  // ---------------- IndexedDB ----------------
   const initDB = () => {
     const req = indexedDB.open("database", 1);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains("pendingRequests")) {
-        const store = db.createObjectStore("pendingRequests", { keyPath: "id", autoIncrement: true });
+        const store = db.createObjectStore("pendingRequests", {
+          keyPath: "id",
+          autoIncrement: true
+        });
         store.createIndex("type", "type", { unique: false });
       }
     };
@@ -43,7 +46,7 @@ export default function App({ API_URL }) {
     cargarPendientes();
   }, []);
 
-  // ---------------- LOGIN ----------------
+  // ---------------- Login ----------------
   const handleLogin = async (e) => {
     e.preventDefault();
     setMensaje("Verificando...");
@@ -54,13 +57,13 @@ export default function App({ API_URL }) {
       const resp = await fetch(`${API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginData),
+        body: JSON.stringify(loginData)
       });
 
       if (resp.ok) {
         setMensaje("Login correcto. Enviando notificación...");
 
-        // ---------------- SUBSCRIPCIÓN PUSH ----------------
+        // ---------------- Suscripción push ----------------
         if ("serviceWorker" in navigator) {
           const registro = await navigator.serviceWorker.ready;
           if (Notification.permission === "default") await Notification.requestPermission();
@@ -68,7 +71,9 @@ export default function App({ API_URL }) {
           if (Notification.permission === "granted") {
             const sub = await registro.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array("BCHALEzsuX9vfyoR2WyFYJP0nCSNmZyzUOZgNq1I3w3Q4wdgPt7bOPh3JdaePMh7Qx4HZpzfcMVZ1K_BrIxOTrk")
+              applicationServerKey: urlBase64ToUint8Array(
+                "BCHALEzsuX9vfyoR2WyFYJP0nCSNmZyzUOZgNq1I3w3Q4wdgPt7bOPh3JdaePMh7Qx4HZpzfcMVZ1K_BrIxOTrk"
+              )
             });
 
             // Guardar suscripción en backend con el usuario
@@ -80,7 +85,7 @@ export default function App({ API_URL }) {
           }
         }
 
-        // ---------------- ENVIAR PUSH ----------------
+        // ---------------- Enviar notificación push ----------------
         await fetch(`${API_URL}/api/send-push`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -89,7 +94,6 @@ export default function App({ API_URL }) {
 
         cargarPendientes();
       } else setMensaje("Usuario o contraseña incorrectos");
-
     } catch (err) {
       // Guardar login offline
       setMensaje("⚠️ Conexión perdida, guardando login offline...");
@@ -111,7 +115,7 @@ export default function App({ API_URL }) {
     }
   };
 
-  // ---------------- REENVIAR LOGINS OFFLINE ----------------
+  // ---------------- Reenviar logins offline ----------------
   const enviarLoginsPendientes = async () => {
     const dbReq = indexedDB.open("database", 1);
     dbReq.onsuccess = (event) => {
@@ -194,7 +198,7 @@ export default function App({ API_URL }) {
   );
 }
 
-// ---------------- FUNCIONES AUX ----------------
+// ---------------- Función auxiliar ----------------
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
