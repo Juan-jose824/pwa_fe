@@ -1,16 +1,14 @@
 import { useState, useEffect } from "react";
 import "./App.css";
-import shogun from "./assets/img/shogun.jpg"; // importa la imagen para que Vite la resuelva
+import shogun from "./assets/img/shogun.jpg";
 
-const API_URL = import.meta.env.VITE_API_URL || "https://pwa-back-k42e.onrender.com";
-
-export default function App() {
+export default function App({ API_URL }) {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [pendientes, setPendientes] = useState([]);
 
-  // inicializa DB si hace falta
+  // Inicializar DB
   const initDB = () => {
     const req = indexedDB.open("database", 1);
     req.onupgradeneeded = (e) => {
@@ -20,10 +18,8 @@ export default function App() {
         store.createIndex("type", "type", { unique: false });
       }
     };
-    req.onerror = () => console.warn("IndexedDB: error al abrir/crear DB");
   };
 
-  // Función para cargar logins pendientes
   const cargarPendientes = () => {
     const dbReq = indexedDB.open("database", 1);
     dbReq.onsuccess = (event) => {
@@ -35,17 +31,11 @@ export default function App() {
       store.openCursor().onsuccess = (cursorEvent) => {
         const cursor = cursorEvent.target.result;
         if (cursor) {
-          if (cursor.value.usuario && cursor.value.password) {
-            logins.push(cursor.value);
-          }
+          if (cursor.value.type === "login") logins.push(cursor.value);
           cursor.continue();
-        } else {
-          setPendientes(logins);
-        }
+        } else setPendientes(logins);
       };
-      tx.onerror = () => console.warn("IndexedDB: error leyendo pendientes");
     };
-    dbReq.onerror = () => console.warn("IndexedDB: no se pudo abrir DB");
   };
 
   useEffect(() => {
@@ -53,6 +43,7 @@ export default function App() {
     cargarPendientes();
   }, []);
 
+  // ---------------- LOGIN ----------------
   const handleLogin = async (e) => {
     e.preventDefault();
     setMensaje("Verificando...");
@@ -68,38 +59,59 @@ export default function App() {
 
       if (resp.ok) {
         setMensaje("Login correcto. Enviando notificación...");
-        await fetch(`${API_URL}/api/send-push`, { method: "POST" });
-        cargarPendientes(); // actualizar pendientes
-      } else {
-        setMensaje("Usuario o contraseña incorrectos");
-      }
+
+        // ---------------- SUBSCRIPCIÓN PUSH ----------------
+        if ("serviceWorker" in navigator) {
+          const registro = await navigator.serviceWorker.ready;
+          if (Notification.permission === "default") await Notification.requestPermission();
+
+          if (Notification.permission === "granted") {
+            const sub = await registro.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array("BCHALEzsuX9vfyoR2WyFYJP0nCSNmZyzUOZgNq1I3w3Q4wdgPt7bOPh3JdaePMh7Qx4HZpzfcMVZ1K_BrIxOTrk")
+            });
+
+            // Guardar suscripción en backend con el usuario
+            await fetch(`${API_URL}/api/subscribe`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ usuario, subscription: sub.toJSON() })
+            });
+          }
+        }
+
+        // ---------------- ENVIAR PUSH ----------------
+        await fetch(`${API_URL}/api/send-push`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usuario })
+        });
+
+        cargarPendientes();
+      } else setMensaje("Usuario o contraseña incorrectos");
+
     } catch (err) {
-      // Guardar offline con type:"login" para que el SW lo reconozca
+      // Guardar login offline
       setMensaje("⚠️ Conexión perdida, guardando login offline...");
       const dbReq = indexedDB.open("database", 1);
       dbReq.onsuccess = (event) => {
         const db = event.target.result;
         const tx = db.transaction("pendingRequests", "readwrite");
         const store = tx.objectStore("pendingRequests");
-        store.add({ type: "login", usuario: loginData.usuario, password: loginData.password });
+        store.add({ type: "login", usuario, password });
         tx.oncomplete = async () => {
           setMensaje("📦 Login guardado offline. Se enviará al reconectar.");
-          cargarPendientes(); // actualizar pendientes
+          cargarPendientes();
           if ("serviceWorker" in navigator && "SyncManager" in window) {
-            try {
-              const sw = await navigator.serviceWorker.ready;
-              await sw.sync.register("sync-login");
-            } catch (err) {
-              console.warn("SyncManager no disponible o registro falló", err);
-            }
+            const sw = await navigator.serviceWorker.ready;
+            await sw.sync.register("sync-login");
           }
         };
-        tx.onerror = () => console.warn("IndexedDB: error guardando login");
       };
-      dbReq.onerror = () => console.warn("IndexedDB: no se pudo abrir DB para escribir");
     }
   };
 
+  // ---------------- REENVIAR LOGINS OFFLINE ----------------
   const enviarLoginsPendientes = async () => {
     const dbReq = indexedDB.open("database", 1);
     dbReq.onsuccess = (event) => {
@@ -111,22 +123,25 @@ export default function App() {
       store.openCursor().onsuccess = (cursorEvent) => {
         const cursor = cursorEvent.target.result;
         if (cursor) {
-          if (cursor.value.type === "login") {
-            logins.push({ key: cursor.key, value: cursor.value });
-          }
+          if (cursor.value.type === "login") logins.push({ key: cursor.key, value: cursor.value });
           cursor.continue();
         } else {
-          // reenviar secuencialmente para evitar sobrecarga
           (async function resendAll() {
             for (const login of logins) {
               try {
                 const resp = await fetch(`${API_URL}/api/login`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ usuario: login.value.usuario, password: login.value.password }),
+                  body: JSON.stringify({ usuario: login.value.usuario, password: login.value.password })
                 });
+
                 if (resp.ok) {
-                  await fetch(`${API_URL}/api/send-push`, { method: "POST" });
+                  await fetch(`${API_URL}/api/send-push`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ usuario: login.value.usuario })
+                  });
+
                   const delTx = db.transaction("pendingRequests", "readwrite");
                   delTx.objectStore("pendingRequests").delete(login.key);
                 }
@@ -138,9 +153,7 @@ export default function App() {
           })();
         }
       };
-      store.openCursor().onerror = () => console.warn("IndexedDB: error leyendo cursor");
     };
-    dbReq.onerror = () => console.warn("IndexedDB: no se pudo abrir DB");
   };
 
   return (
@@ -179,4 +192,12 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// ---------------- FUNCIONES AUX ----------------
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
 }
