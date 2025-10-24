@@ -14,10 +14,7 @@ export default function App({ API_URL }) {
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains("pendingRequests")) {
-        const store = db.createObjectStore("pendingRequests", {
-          keyPath: "id",
-          autoIncrement: true
-        });
+        const store = db.createObjectStore("pendingRequests", { keyPath: "id", autoIncrement: true });
         store.createIndex("type", "type", { unique: false });
       }
     };
@@ -71,12 +68,9 @@ export default function App({ API_URL }) {
           if (Notification.permission === "granted") {
             const sub = await registro.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(
-                "BCHALEzsuX9vfyoR2WyFYJP0nCSNmZyzUOZgNq1I3w3Q4wdgPt7bOPh3JdaePMh7Qx4HZpzfcMVZ1K_BrIxOTrk"
-              )
+              applicationServerKey: urlBase64ToUint8Array(process.env.VITE_PUBLIC_KEY)
             });
 
-            // Guardar suscripción en backend con el usuario
             await fetch(`${API_URL}/api/subscribe`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -95,7 +89,6 @@ export default function App({ API_URL }) {
         cargarPendientes();
       } else setMensaje("Usuario o contraseña incorrectos");
     } catch (err) {
-      // Guardar login offline
       setMensaje("⚠️ Conexión perdida, guardando login offline...");
       const dbReq = indexedDB.open("database", 1);
       dbReq.onsuccess = (event) => {
@@ -168,27 +161,12 @@ export default function App({ API_URL }) {
         <p className="login-subtitle">Inicia sesión para continuar</p>
 
         <form onSubmit={handleLogin} className="login-form">
-          <input
-            type="text"
-            placeholder="Usuario"
-            value={usuario}
-            onChange={(e) => setUsuario(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <input type="text" placeholder="Usuario" value={usuario} onChange={(e) => setUsuario(e.target.value)} required />
+          <input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} required />
           <button type="submit">Entrar</button>
         </form>
 
-        <button
-          className={`retry-btn ${pendientes.length > 0 ? "pending" : ""}`}
-          onClick={enviarLoginsPendientes}
-        >
+        <button className={`retry-btn ${pendientes.length > 0 ? "pending" : ""}`} onClick={enviarLoginsPendientes}>
           🔄 Reintentar logins pendientes ({pendientes.length})
         </button>
 

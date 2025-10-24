@@ -125,8 +125,14 @@ async function syncPendingLogins() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ usuario: cursor.value.usuario, password: cursor.value.password })
             });
+
             if (resp.ok) {
-              await fetch(`${API_URL}/api/send-push`, { method: "POST" });
+              await fetch(`${API_URL}/api/send-push`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ usuario: cursor.value.usuario })
+              });
+
               store.delete(cursor.key);
               console.log("Login reenviado y notificación enviada");
             }
