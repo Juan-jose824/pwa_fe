@@ -10,13 +10,23 @@ const APP_SHELL = [
   "/assets/img/icon3.png"
 ];
 
+// -------------------- INSTALL --------------------
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(APP_SHELL_CACHE).then(async (cache) => {
+      for (const url of APP_SHELL) {
+        try {
+          await cache.add(url);
+        } catch (err) {
+          console.warn(`[SW] No se pudo cachear ${url}:`, err);
+        }
+      }
+    })
   );
   self.skipWaiting();
 });
 
+// -------------------- ACTIVATE --------------------
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -30,6 +40,7 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// -------------------- FETCH --------------------
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
@@ -38,18 +49,16 @@ self.addEventListener("fetch", (event) => {
       fetch(event.request)
         .then((resp) =>
           caches.open(DYNAMIC_CACHE).then((cache) => {
-            // Clona pero sin cachear peticiones cross-origin sensibles (opcional)
-            try { cache.put(event.request, resp.clone()); } catch(e){}
+            try { cache.put(event.request, resp.clone()); } catch(e) {}
             return resp;
           })
         )
         .catch(() => caches.match("./index.html"))
-
     )
   );
 });
 
-// Sincronización de POSTs y Login
+// -------------------- SYNC --------------------
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-posts") {
     console.log("[SW] Ejecutando sincronización de POSTs...");
@@ -131,7 +140,7 @@ async function syncPendingLogins() {
   };
 }
 
-// Push Notifications
+// -------------------- PUSH --------------------
 self.addEventListener("push", (event) => {
   const data = event.data ? event.data.json() : {};
   const options = {
