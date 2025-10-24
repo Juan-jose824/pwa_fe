@@ -3,7 +3,6 @@ const API_URL = "https://pwa-back-k42e.onrender.com";
 const APP_SHELL_CACHE = "appShell_v1.0";
 const DYNAMIC_CACHE = "dynamic_v1.0";
 
-// Asegúrate de que estas rutas existan en "public/assets/img/"
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -17,7 +16,6 @@ self.addEventListener("install", (event) => {
     caches.open(APP_SHELL_CACHE).then(async (cache) => {
       for (const url of APP_SHELL) {
         try {
-          // Convertir rutas relativas a absolutas
           const absoluteUrl = new URL(url, self.location.origin).href;
           await cache.add(absoluteUrl);
         } catch (err) {
@@ -54,7 +52,6 @@ self.addEventListener("fetch", (event) => {
       return fetch(event.request)
         .then((resp) =>
           caches.open(DYNAMIC_CACHE).then((cache) => {
-            // Solo cachear respuestas válidas
             if (resp && resp.ok) {
               try {
                 cache.put(event.request, resp.clone());
@@ -81,6 +78,7 @@ self.addEventListener("sync", (event) => {
   }
 });
 
+// -------------------- SYNC POST --------------------
 async function syncPendingPosts() {
   const dbReq = indexedDB.open("database", 1);
   dbReq.onsuccess = (event) => {
@@ -95,63 +93,71 @@ async function syncPendingPosts() {
         if (cursor.value.type !== "login") allPosts.push({ key: cursor.key, value: cursor.value });
         cursor.continue();
       } else {
-        sendPostsSequentially(db, allPosts);
+        // Procesar posts secuencialmente con transacciones nuevas
+        allPosts.forEach(async (post) => {
+          try {
+            const resp = await fetch(`${API_URL}/api/post`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(post.value)
+            });
+            if (resp.ok) {
+              const txDel = db.transaction("pendingRequests", "readwrite");
+              txDel.objectStore("pendingRequests").delete(post.key);
+            }
+          } catch (err) {
+            console.error("Error reenviando POST", err);
+          }
+        });
       }
     };
   };
 }
 
-async function sendPostsSequentially(db, posts) {
-  for (let post of posts) {
-    try {
-      const resp = await fetch(`${API_URL}/api/post`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(post.value)
-      });
-      if (resp.ok) {
-        const tx = db.transaction("pendingRequests", "readwrite");
-        tx.objectStore("pendingRequests").delete(post.key);
-      }
-    } catch (err) {
-      console.error("Error reenviando POST", err);
-    }
-  }
-  console.log("[SW] Sincronización de POSTs completada");
-}
-
+// -------------------- SYNC LOGIN --------------------
 async function syncPendingLogins() {
   const dbReq = indexedDB.open("database", 1);
   dbReq.onsuccess = (event) => {
     const db = event.target.result;
-    const tx = db.transaction("pendingRequests", "readwrite");
+    const tx = db.transaction("pendingRequests", "readonly");
     const store = tx.objectStore("pendingRequests");
 
-    store.openCursor().onsuccess = async (cursorEvent) => {
+    const logins = [];
+    store.openCursor().onsuccess = (cursorEvent) => {
       const cursor = cursorEvent.target.result;
       if (cursor) {
         if (cursor.value.type === "login") {
-          try {
-            const resp = await fetch(`${API_URL}/api/login`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ usuario: cursor.value.usuario, password: cursor.value.password })
-            });
-
-            if (resp.ok) {
-              await fetch(`${API_URL}/api/send-push`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ usuario: cursor.value.usuario })
-              });
-              store.delete(cursor.key);
-              console.log("Login reenviado y notificación enviada");
-            }
-          } catch (err) {
-            console.error("Error reenviando login", err);
-          }
+          logins.push({ key: cursor.key, value: cursor.value });
         }
         cursor.continue();
+      } else {
+        // Procesar logins secuencialmente
+        (async () => {
+          for (const login of logins) {
+            try {
+              const resp = await fetch(`${API_URL}/api/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ usuario: login.value.usuario, password: login.value.password })
+              });
+
+              if (resp.ok) {
+                await fetch(`${API_URL}/api/send-push`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ usuario: login.value.usuario })
+                });
+
+                // Nueva transacción para borrar
+                const txDel = db.transaction("pendingRequests", "readwrite");
+                txDel.objectStore("pendingRequests").delete(login.key);
+                console.log(`Login reenviado y push enviado: ${login.value.usuario}`);
+              }
+            } catch (err) {
+              console.error("Error reenviando login", err);
+            }
+          }
+        })();
       }
     };
   };
