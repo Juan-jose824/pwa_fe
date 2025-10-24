@@ -6,8 +6,6 @@ const DYNAMIC_CACHE = "dynamic_v1.0";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/offline.html",
-  "/src/index.css",
   "/assets/img/shogun.jpg",
   "/assets/img/icon3.png"
 ];
@@ -45,7 +43,8 @@ self.addEventListener("fetch", (event) => {
             return resp;
           })
         )
-        .catch(() => caches.match("/offline.html"))
+        .catch(() => caches.match("./index.html"))
+
     )
   );
 });
