@@ -1,7 +1,7 @@
 const API_URL = "https://pwa-back-k42e.onrender.com";
 
-const APP_SHELL_CACHE = "appShell_v2";
-const DYNAMIC_CACHE = "dynamic_v2";
+const APP_SHELL_CACHE = "appShell_v3";
+const DYNAMIC_CACHE = "dynamic_v3";
 
 const APP_SHELL = [
   "/",
@@ -10,7 +10,9 @@ const APP_SHELL = [
   "/assets/img/icon3.png"
 ];
 
+// -------------------------------
 // INSTALL
+// -------------------------------
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(APP_SHELL_CACHE).then(async (cache) => {
@@ -19,7 +21,7 @@ self.addEventListener("install", (event) => {
           const absoluteUrl = new URL(url, self.location.origin).href;
           await cache.add(absoluteUrl);
         } catch (err) {
-          console.warn(`[SW] No se pudo cachear ${url}:`, err);
+          console.warn("[SW] Error cacheando:", url, err);
         }
       }
     })
@@ -27,7 +29,9 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
+// -------------------------------
 // ACTIVATE
+// -------------------------------
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -41,11 +45,13 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// -------------------------------
 // FETCH
+// -------------------------------
 self.addEventListener("fetch", (event) => {
   const url = event.request.url;
 
-  // NO cache para API
+  // No cache para API
   if (url.includes("/api/")) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -69,7 +75,6 @@ self.addEventListener("fetch", (event) => {
       return fetch(event.request)
         .then((resp) => {
           if (!event.request.url.startsWith("http")) return resp;
-
           return caches.open(DYNAMIC_CACHE).then((cache) => {
             if (resp && resp.ok) cache.put(event.request, resp.clone());
             return resp;
@@ -80,69 +85,125 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// SYNC
+// -------------------------------
+// SYNC EVENT
+// -------------------------------
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-login") {
     event.waitUntil(syncPendingLogins());
   }
 });
 
-// Reintentar logins guardados
+// -------------------------------
+// FUNCION CORREGIDA: NO CURSOR ASYNC
+// -------------------------------
 async function syncPendingLogins() {
-  const dbReq = indexedDB.open("database", 1);
+  console.log("[SW] Comenzando sincronización...");
 
-  dbReq.onsuccess = (event) => {
-    const db = event.target.result;
-    const tx = db.transaction("pendingRequests", "readonly");
-    const store = tx.objectStore("pendingRequests");
+  const db = await openDB();
 
-    const req = store.openCursor();
+  const pending = await readAllPending(db);
 
-    req.onsuccess = async (cursorEvent) => {
-      const cursor = cursorEvent.target.result;
+  for (const item of pending) {
+    if (item.type !== "login") continue;
 
-      if (!cursor) return;
+    try {
+      console.log("[SW] Reintentando login:", item.usuario);
 
-      if (cursor.value.type === "login") {
-        try {
-          const resp = await fetch(`${API_URL}/api/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              usuario: cursor.value.usuario,
-              password: cursor.value.password,
-            }),
-          });
+      const resp = await fetch(`${API_URL}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          usuario: item.usuario,
+          password: item.password
+        })
+      });
 
-          if (resp.ok) {
-            const data = await resp.json();
+      if (resp.ok) {
+        const data = await resp.json();
 
-            self.registration.showNotification("Login exitoso", {
-              body: `Bienvenido de nuevo, ${data.usuario}`,
-              icon: "/assets/img/icon3.png",
-            });
+        // Borrar de la BD
+        await deletePending(db, item.id);
 
-            const delTx = db.transaction("pendingRequests", "readwrite");
-            delTx.objectStore("pendingRequests").delete(cursor.key);
-          }
-        } catch (err) {
-          console.error("[SW] Error reenviando login:", err);
-        }
+        // Notificación
+        self.registration.showNotification("Login exitoso", {
+          body: `Bienvenido de nuevo, ${data.usuario}`,
+          icon: "/assets/img/icon3.png"
+        });
+
+        // 🎯 ENVIAR MENSAJE AL FRONT PARA CAMBIAR LA VISTA
+        notifyClients({
+          type: "login-success",
+          usuario: data.usuario,
+          rol: data.rol
+        });
       }
-
-      cursor.continue();
-    };
-  };
+    } catch (err) {
+      console.log("[SW] Error reintentando:", err);
+    }
+  }
 }
 
+// -------------------------------
+// IndexedDB helpers
+// -------------------------------
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("database", 1);
+
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("pendingRequests")) {
+        db.createObjectStore("pendingRequests", {
+          keyPath: "id",
+          autoIncrement: true
+        });
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror  = () => reject(req.error);
+  });
+}
+
+function readAllPending(db) {
+  return new Promise((resolve) => {
+    const tx = db.transaction("pendingRequests", "readonly");
+    const store = tx.objectStore("pendingRequests");
+    const req = store.getAll();
+
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+function deletePending(db, id) {
+  return new Promise((resolve) => {
+    const tx = db.transaction("pendingRequests", "readwrite");
+    tx.objectStore("pendingRequests").delete(id);
+    tx.oncomplete = () => resolve();
+  });
+}
+
+// -------------------------------
+// ENVIAR MENSAJE A TODAS LAS PESTAÑAS
+// -------------------------------
+function notifyClients(msg) {
+  self.clients.matchAll().then((clients) => {
+    clients.forEach((client) => client.postMessage(msg));
+  });
+}
+
+// -------------------------------
 // PUSH
+// -------------------------------
 self.addEventListener("push", (event) => {
   const data = event.data ? event.data.json() : {};
+
   const options = {
-    body: data.mensaje || "Tienes una nueva notificación 🎉",
+    body: data.mensaje || "Tienes una nueva notificación",
     icon: "/assets/img/icon3.png",
-    image: "/assets/img/shogun.jpg",
     badge: "/assets/img/icon3.png",
+    image: "/assets/img/shogun.jpg",
     vibrate: [200, 100, 200],
   };
 
@@ -150,14 +211,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(data.titulo || "Notificación", options)
   );
 
-  // Admin: actualizar tabla
   if (data.type === "new-user") {
-    event.waitUntil(
-      self.clients.matchAll().then((clients) => {
-        clients.forEach((client) =>
-          client.postMessage({ type: "update-users" })
-        );
-      })
-    );
+    notifyClients({ type: "update-users" });
   }
 });
