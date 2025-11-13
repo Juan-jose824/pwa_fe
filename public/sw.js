@@ -50,13 +50,14 @@ self.addEventListener("fetch", (event) => {
       if (cacheResp) return cacheResp;
 
       return fetch(event.request)
-        .then((resp) =>
-          caches.open(DYNAMIC_CACHE).then((cache) => {
+        .then((resp) => {
+          if (!event.request.url.startsWith("http")) return resp; // ⚠️ filtra requests no http(s)
+          return caches.open(DYNAMIC_CACHE).then((cache) => {
             if (resp && resp.ok) cache.put(event.request, resp.clone());
             return resp;
-          })
-        )
-        .catch(() => caches.match("/index.html"))
+          });
+        })
+        .catch(() => caches.match("/index.html"));
     })
   );
 });
