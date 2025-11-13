@@ -6,6 +6,9 @@ export default function Register({ API_URL, goToLogin }) {
   const [password, setPassword] = useState("");
   const [mensaje, setMensaje] = useState("");
 
+  // TU PUBLIC KEY VAPID
+  const publicKey = "<TU_PUBLIC_KEY_AQUI>";
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setMensaje("Creando usuario...");
@@ -18,7 +21,42 @@ export default function Register({ API_URL, goToLogin }) {
       });
 
       if (resp.ok) {
+        const data = await resp.json();
         setMensaje("✅ Usuario registrado correctamente. Redirigiendo...");
+
+        // Suscribir push al registrar
+        if ("serviceWorker" in navigator) {
+          try {
+            const registro = await navigator.serviceWorker.ready;
+            let sub = await registro.pushManager.getSubscription();
+
+            if (!sub) {
+              if (Notification.permission === "default") await Notification.requestPermission();
+              if (Notification.permission === "granted") {
+                sub = await registro.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+                console.log("Nueva suscripción push:", sub.toJSON());
+              }
+            }
+
+            if (sub) {
+              await fetch(`${API_URL}/api/subscribe-new-user`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userId: data.id,
+                  subscription: sub.toJSON()
+                })
+              });
+              console.log("[Push] Suscripción enviada para nuevo usuario");
+            }
+          } catch (err) {
+            console.error("Error suscribiendo push al registrar:", err);
+          }
+        }
+
         setTimeout(goToLogin, 1200);
       } else {
         const data = await resp.json();
@@ -67,4 +105,12 @@ export default function Register({ API_URL, goToLogin }) {
       </div>
     </div>
   );
+}
+
+// helper
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
