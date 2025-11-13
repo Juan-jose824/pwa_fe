@@ -40,7 +40,6 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
-console.log("[SW] Reintentando login con:", login.value.usuario, login.value.password);
 
 // FETCH
 self.addEventListener("fetch", (event) => {
@@ -52,7 +51,9 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(event.request)
         .then((resp) => {
-          if (!event.request.url.startsWith("http")) return resp; // ⚠️ filtra requests no http(s)
+          // ⚠️ Filtrar requests no http(s)
+          if (!event.request.url.startsWith("http")) return resp;
+
           return caches.open(DYNAMIC_CACHE).then((cache) => {
             if (resp && resp.ok) cache.put(event.request, resp.clone());
             return resp;
@@ -74,6 +75,7 @@ self.addEventListener("sync", (event) => {
 // SYNC LOGIN
 async function syncPendingLogins() {
   const dbReq = indexedDB.open("database", 1);
+
   dbReq.onsuccess = async (event) => {
     const db = event.target.result;
     const tx = db.transaction("pendingRequests", "readonly");
@@ -92,7 +94,9 @@ async function syncPendingLogins() {
       } else {
         for (const login of logins) {
           try {
-            console.log(`[SW] Reintentando login de ${login.value.usuario}...`);
+            // ✅ Mostrar claramente qué login se reintenta
+            console.log("[SW] Reintentando login con:", login.value.usuario, login.value.password);
+
             const resp = await fetch(`${API_URL}/api/login`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -106,15 +110,17 @@ async function syncPendingLogins() {
               const data = await resp.json();
               console.log("[SW] Login exitoso (offline → online)");
 
-              // Notificar en el dispositivo que el login se completó
+              // Notificar al usuario
               self.registration.showNotification("Login exitoso", {
                 body: `Bienvenido de nuevo, ${data.usuario}`,
                 icon: "/assets/img/icon3.png"
               });
 
-              // Borrar login reenviado
+              // Borrar login reenviado de IndexedDB
               const txDel = db.transaction("pendingRequests", "readwrite");
               txDel.objectStore("pendingRequests").delete(login.key);
+            } else if (resp.status === 401) {
+              console.warn(`[SW] Login fallido para ${login.value.usuario}: usuario o contraseña incorrectos`);
             }
           } catch (err) {
             console.error("[SW] Error reenviando login:", err);
@@ -123,6 +129,8 @@ async function syncPendingLogins() {
       }
     };
   };
+
+  dbReq.onerror = (err) => console.error("[SW] Error abriendo IndexedDB:", err);
 }
 
 // PUSH
