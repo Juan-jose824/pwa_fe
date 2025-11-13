@@ -32,11 +32,13 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ title: "Mensaje del admin", body: `Hola ${nombre}, tienes una notificación.` })
+        body: JSON.stringify({
+          title: "Mensaje del admin",
+          body: `Hola ${nombre}, tienes una notificación.`
+        })
       });
-      if (resp.ok) {
-        setMensaje("✅ Notificación enviada");
-      } else {
+      if (resp.ok) setMensaje("✅ Notificación enviada");
+      else {
         const data = await resp.json();
         setMensaje(data.message || "Error enviando notificación");
       }
@@ -48,7 +50,6 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
 
   useEffect(() => {
     cargarUsuarios();
-    // eslint-disable-next-line
   }, []);
 
   return (
@@ -66,7 +67,7 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
             <th>No.</th>
             <th>Nombre de usuario</th>
             <th>Correo</th>
-            <th>botonE</th>
+            <th>Notif</th>
           </tr>
         </thead>
         <tbody>
@@ -76,7 +77,10 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
               <td>{u.usuario}</td>
               <td>{u.correo}</td>
               <td>
-                <button className="notify-btn" onClick={() => enviarNotificacion(u._id, u.usuario)}>
+                <button
+                  className="notify-btn"
+                  onClick={() => enviarNotificacion(u._id, u.usuario)}
+                >
                   Enviar
                 </button>
               </td>

@@ -79,30 +79,39 @@ export default function App({ API_URL }) {
 
         // Suscribir para push y enviar subscribe al backend con token
         if ("serviceWorker" in navigator) {
-          const registro = await navigator.serviceWorker.ready;
-          if (Notification.permission === "default") await Notification.requestPermission();
-          if (Notification.permission === "granted") {
-            try {
-              const publicKey = import.meta.env.VITE_PUBLIC_KEY;
-              if (publicKey) {
-                const sub = await registro.pushManager.subscribe({
-                  userVisibleOnly: true,
-                  applicationServerKey: urlBase64ToUint8Array(publicKey)
-                });
-                await fetch(`${API_URL}/api/subscribe`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${data.token}`
-                  },
-                  body: JSON.stringify({ subscription: sub.toJSON() })
-                });
-              }
-            } catch (err) {
-              console.error("Error suscribiendo push:", err);
-            }
-          }
-        }
+  try {
+    const registro = await navigator.serviceWorker.ready;
+    let sub = await registro.pushManager.getSubscription();
+
+    if (!sub) {
+      if (Notification.permission === "default") await Notification.requestPermission();
+      if (Notification.permission === "granted") {
+        sub = await registro.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+        console.log("Nueva suscripción push:", sub.toJSON());
+      }
+    } else {
+      console.log("Suscripción push existente:", sub.toJSON());
+    }
+
+    if (sub) {
+      await fetch(`${API_URL}/api/subscribe`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.token}`
+        },
+        body: JSON.stringify({ subscription: sub.toJSON() })
+      });
+      console.log("[Push] Suscripción enviada al backend");
+    }
+  } catch (err) {
+    console.error("Error suscribiendo push:", err);
+  }
+}
+
 
         if (data.role === "admin") setView("admin");
         else setView("dashboard");
