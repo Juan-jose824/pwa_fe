@@ -95,13 +95,12 @@ self.addEventListener("sync", (event) => {
 });
 
 // -------------------------------
-// FUNCION CORREGIDA: NO CURSOR ASYNC
+// BACKGROUND SYNC: LOGIN OFFLINE
 // -------------------------------
 async function syncPendingLogins() {
   console.log("[SW] Comenzando sincronización...");
 
   const db = await openDB();
-
   const pending = await readAllPending(db);
 
   for (const item of pending) {
@@ -119,27 +118,30 @@ async function syncPendingLogins() {
         })
       });
 
-      if (resp.ok) {
-        const data = await resp.json();
+      if (!resp.ok) throw new Error("Error en login offline");
 
-        // Borrar de la BD
-        await deletePending(db, item.id);
+      const data = await resp.json();
 
-        // Notificación
-        self.registration.showNotification("Login exitoso", {
-          body: `Bienvenido de nuevo, ${data.usuario}`,
-          icon: "/assets/img/icon3.png"
-        });
+      // Borrar de DB
+      await deletePending(db, item.id);
 
-        // 🎯 ENVIAR MENSAJE AL FRONT PARA CAMBIAR LA VISTA
-        notifyClients({
-          type: "login-success",
-          usuario: data.usuario,
-          rol: data.rol
-        });
-      }
+      // Notificación local
+      self.registration.showNotification("Login exitoso", {
+        body: `Bienvenido de nuevo, ${data.usuario}`,
+        icon: "/assets/img/icon3.png"
+      });
+
+      // 🟢 CORREGIDO: mandar TODOS los datos necesarios al frontend
+      notifyClients({
+        type: "login-success",
+        token: data.token,
+        usuario: data.usuario,
+        correo: data.correo,
+        role: data.role || data.rol   // admin o user
+      });
+
     } catch (err) {
-      console.log("[SW] Error reintentando:", err);
+      console.error("[SW] Error reintentando:", err);
     }
   }
 }
@@ -162,7 +164,7 @@ function openDB() {
     };
 
     req.onsuccess = () => resolve(req.result);
-    req.onerror  = () => reject(req.error);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -185,7 +187,7 @@ function deletePending(db, id) {
 }
 
 // -------------------------------
-// ENVIAR MENSAJE A TODAS LAS PESTAÑAS
+// ENVIAR MENSAJE A LAS PESTAÑAS
 // -------------------------------
 function notifyClients(msg) {
   self.clients.matchAll().then((clients) => {
@@ -204,7 +206,7 @@ self.addEventListener("push", (event) => {
     icon: "/assets/img/icon3.png",
     badge: "/assets/img/icon3.png",
     image: "/assets/img/shogun.jpg",
-    vibrate: [200, 100, 200],
+    vibrate: [200, 100, 200]
   };
 
   event.waitUntil(
