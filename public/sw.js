@@ -40,6 +40,7 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
+console.log("[SW] Reintentando login con:", login.value.usuario, login.value.password);
 
 // FETCH
 self.addEventListener("fetch", (event) => {
