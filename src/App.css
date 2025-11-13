@@ -17,6 +17,7 @@ body, html {
   100% { background-position: 0% 50%; }
 }
 
+/* ----- TARJETA PRINCIPAL (login y registro) ----- */
 .login-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -66,6 +67,7 @@ body, html {
   color: #333;
 }
 
+/* ----- FORMULARIOS ----- */
 .login-form input {
   width: 100%;
   padding: 10px;
@@ -124,4 +126,112 @@ body, html {
 
 .retry-btn.pending {
   animation: shake 0.5s ease-in-out infinite;
+}
+
+/* ----- PANELES DE USUARIO Y ADMIN ----- */
+.user-panel, .admin-panel {
+  width: 90%;
+  max-width: 600px;
+  background: rgba(255, 255, 255, 0.93);
+  border-radius: 20px;
+  padding: 25px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  animation: fadeIn 1s ease;
+}
+
+.user-panel h2, .admin-panel h2 {
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.user-panel p {
+  color: #555;
+  font-size: 1rem;
+  margin-bottom: 20px;
+}
+
+/* ----- TABLA DE USUARIOS (solo admin) ----- */
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.user-table th, .user-table td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.user-table th {
+  background: #eee;
+}
+
+.notify-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.notify-btn:hover {
+  background-color: #3d8b41;
+}
+
+.refresh-btn {
+  margin: 10px 0;
+  padding: 6px 12px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #0056b3;
+}
+
+.logout-btn {
+  margin-top: 15px;
+  background: #d9534f;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.logout-btn:hover {
+  background: #b52b27;
+}
+
+/* ----- NOTIFICACIONES Y MENSAJES ----- */
+.notification {
+  background: #fff3cd;
+  color: #856404;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ffeeba;
+  margin-bottom: 10px;
+  animation: fadeIn 0.8s ease;
+}
+
+.success-msg {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.error-msg {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
 }

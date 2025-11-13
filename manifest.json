@@ -1,12 +1,12 @@
 {
-  "name": "Mi primera PWA",
-  "short_name": "PWA",
+  "name": "PWA Juanito",
+  "short_name": "PWA Juanito",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
   "orientation": "portrait-primary",
-  "description": "Primera PWA",
+  "description": "Aplicación Progresiva de Juanito con registro, login y notificaciones.",
   "icons": [
     {
       "src": "/icons/icon1.png",
@@ -19,10 +19,10 @@
       "type": "image/png"
     },
     {
-      "src": "/icons/icon3.png",  
+      "src": "/icons/icon3.png",
       "sizes": "512x512",
       "type": "image/png"
     }
   ],
-    "splash-pages": null
+  "splash-pages": null
 }

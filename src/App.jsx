@@ -1,14 +1,19 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 import shogun from "./assets/img/shogun.jpg";
+import Register from "./Register";
+import Dashboard from "./Dashboard";
+import UsersAdmin from "./UsersAdmin";
 
 export default function App({ API_URL }) {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [pendientes, setPendientes] = useState([]);
+  const [view, setView] = useState("login"); // login | register | dashboard | admin
+  const [auth, setAuth] = useState(null); // { token, usuario, correo, role }
 
-  // ---------------- IndexedDB ----------------
+  // Inicializar IndexedDB
   const initDB = () => {
     const req = indexedDB.open("database", 1);
     req.onupgradeneeded = (e) => {
@@ -43,51 +48,69 @@ export default function App({ API_URL }) {
     cargarPendientes();
   }, []);
 
-  // ---------------- Login ----------------
+  useEffect(() => {
+    // Si hay token guardado en localStorage, restablecer sesión
+    const stored = localStorage.getItem("auth");
+    if (stored) {
+      const data = JSON.parse(stored);
+      setAuth(data);
+      setView(data.role === "admin" ? "admin" : "dashboard");
+    }
+  }, []);
+
+  // LOGIN
   const handleLogin = async (e) => {
     e.preventDefault();
     setMensaje("Verificando...");
-
-    const loginData = { usuario, password };
 
     try {
       const resp = await fetch(`${API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginData)
+        body: JSON.stringify({ usuario, password })
       });
 
       if (resp.ok) {
-        setMensaje("Login correcto. Enviando notificación...");
+        const data = await resp.json();
+        setMensaje("Login correcto.");
 
-        // ---------------- Suscripción push ----------------
+        const authObj = { token: data.token, usuario: data.usuario, correo: data.correo, role: data.role };
+        setAuth(authObj);
+        localStorage.setItem("auth", JSON.stringify(authObj));
+
+        // Suscribir para push y enviar subscribe al backend con token
         if ("serviceWorker" in navigator) {
           const registro = await navigator.serviceWorker.ready;
           if (Notification.permission === "default") await Notification.requestPermission();
-
           if (Notification.permission === "granted") {
-            const sub = await registro.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(process.env.VITE_PUBLIC_KEY)
-            });
-
-            await fetch(`${API_URL}/api/subscribe`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ usuario, subscription: sub.toJSON() })
-            });
+            try {
+              const publicKey = import.meta.env.VITE_PUBLIC_KEY;
+              if (publicKey) {
+                const sub = await registro.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+                await fetch(`${API_URL}/api/subscribe`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${data.token}`
+                  },
+                  body: JSON.stringify({ subscription: sub.toJSON() })
+                });
+              }
+            } catch (err) {
+              console.error("Error suscribiendo push:", err);
+            }
           }
         }
 
-        // ---------------- Enviar notificación push ----------------
-        await fetch(`${API_URL}/api/send-push`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ usuario })
-        });
-
-        cargarPendientes();
-      } else setMensaje("Usuario o contraseña incorrectos");
+        if (data.role === "admin") setView("admin");
+        else setView("dashboard");
+      } else {
+        const data = await resp.json();
+        setMensaje(data.message || "Usuario o contraseña incorrectos");
+      }
     } catch (err) {
       setMensaje("⚠️ Conexión perdida, guardando login offline...");
       const dbReq = indexedDB.open("database", 1);
@@ -108,7 +131,6 @@ export default function App({ API_URL }) {
     }
   };
 
-  // ---------------- Reenviar logins offline ----------------
   const enviarLoginsPendientes = async () => {
     const dbReq = indexedDB.open("database", 1);
     dbReq.onsuccess = (event) => {
@@ -133,12 +155,16 @@ export default function App({ API_URL }) {
                 });
 
                 if (resp.ok) {
-                  await fetch(`${API_URL}/api/send-push`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ usuario: login.value.usuario })
-                  });
-
+                  const data = await resp.json();
+                  if (data.token) {
+                    await fetch(`${API_URL}/api/send-push`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${data.token}`
+                      }
+                    });
+                  }
                   const delTx = db.transaction("pendingRequests", "readwrite");
                   delTx.objectStore("pendingRequests").delete(login.key);
                 }
@@ -152,6 +178,19 @@ export default function App({ API_URL }) {
       };
     };
   };
+
+  const logout = () => {
+    setAuth(null);
+    localStorage.removeItem("auth");
+    setView("login");
+    setUsuario("");
+    setPassword("");
+    setMensaje("");
+  };
+
+  if (view === "register") return <Register API_URL={API_URL} goToLogin={() => setView("login")} />;
+  if (view === "dashboard" && auth) return <Dashboard usuario={auth.usuario} correo={auth.correo} onLogout={logout} />;
+  if (view === "admin" && auth) return <UsersAdmin API_URL={API_URL} token={auth.token} onLogout={logout} />;
 
   return (
     <div className="login-page">
@@ -170,16 +209,20 @@ export default function App({ API_URL }) {
           🔄 Reintentar logins pendientes ({pendientes.length})
         </button>
 
+        <button className="retry-btn" onClick={() => setView("register")} style={{ marginTop: 8 }}>
+          Crear una cuenta
+        </button>
+
         <p className="login-message">{mensaje}</p>
       </div>
     </div>
   );
 }
 
-// ---------------- Función auxiliar ----------------
+// helper
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
