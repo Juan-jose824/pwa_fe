@@ -1,7 +1,7 @@
 const API_URL = "https://pwa-back-k42e.onrender.com";
 
-const APP_SHELL_CACHE = "appShell_v1.1";
-const DYNAMIC_CACHE = "dynamic_v1.1";
+const APP_SHELL_CACHE = "appShell_v2";
+const DYNAMIC_CACHE = "dynamic_v2";
 
 const APP_SHELL = [
   "/",
@@ -43,22 +43,25 @@ self.addEventListener("activate", (event) => {
 
 // FETCH
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-
   const url = event.request.url;
 
-  // 🚫 No cachear API
+  // 🚫 NO CACHE PARA API (login, register, subscribe, etc)
   if (url.includes("/api/")) {
-    event.respondWith(fetch(event.request).catch(() => {
-      return new Response(
-        JSON.stringify({ message: "Sin conexión a internet" }),
-        { status: 503, headers: { "Content-Type": "application/json" } }
-      );
-    }));
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return new Response(
+          JSON.stringify({ message: "Sin conexión a internet" }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      })
+    );
     return;
   }
 
-  // ✔ Cache first para el resto
+  // ✔ Cache-first para archivos estáticos
   event.respondWith(
     caches.match(event.request).then((cacheResp) => {
       if (cacheResp) return cacheResp;
@@ -76,7 +79,6 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-
 
 // SYNC
 self.addEventListener("sync", (event) => {
@@ -108,7 +110,7 @@ async function syncPendingLogins() {
       } else {
         for (const login of logins) {
           try {
-            console.log("[SW] Reintentando login con:", login.value.usuario, login.value.password);
+            console.log("[SW] Reintentando login con:", login.value.usuario);
 
             const resp = await fetch(`${API_URL}/api/login`, {
               method: "POST",
@@ -131,7 +133,7 @@ async function syncPendingLogins() {
               const txDel = db.transaction("pendingRequests", "readwrite");
               txDel.objectStore("pendingRequests").delete(login.key);
             } else if (resp.status === 401) {
-              console.warn(`[SW] Login fallido para ${login.value.usuario}: usuario o contraseña incorrectos`);
+              console.warn(`[SW] Login fallido para ${login.value.usuario}`);
             }
           } catch (err) {
             console.error("[SW] Error reenviando login:", err);
@@ -159,11 +161,13 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(data.titulo || "Notificación", options)
   );
 
-  // Avisar al frontend si es un push de tipo "new-user"
+  // Notificación especial para tabla de admin
   if (data.type === "new-user") {
     event.waitUntil(
       self.clients.matchAll().then(clients => {
-        clients.forEach(client => client.postMessage({ type: "update-users" }));
+        clients.forEach(client =>
+          client.postMessage({ type: "update-users" })
+        );
       })
     );
   }
