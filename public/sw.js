@@ -45,7 +45,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = event.request.url;
 
-  // 🚫 NO CACHE PARA API (login, register, subscribe, etc)
+  // NO cache para API
   if (url.includes("/api/")) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -61,7 +61,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ✔ Cache-first para archivos estáticos
+  // Cache-first para archivos estáticos
   event.respondWith(
     caches.match(event.request).then((cacheResp) => {
       if (cacheResp) return cacheResp;
@@ -83,67 +83,56 @@ self.addEventListener("fetch", (event) => {
 // SYNC
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-login") {
-    console.log("[SW] Ejecutando sincronización de logins...");
     event.waitUntil(syncPendingLogins());
   }
 });
 
-// SYNC LOGIN
+// Reintentar logins guardados
 async function syncPendingLogins() {
   const dbReq = indexedDB.open("database", 1);
 
-  dbReq.onsuccess = async (event) => {
+  dbReq.onsuccess = (event) => {
     const db = event.target.result;
     const tx = db.transaction("pendingRequests", "readonly");
     const store = tx.objectStore("pendingRequests");
 
-    const logins = [];
     const req = store.openCursor();
 
     req.onsuccess = async (cursorEvent) => {
       const cursor = cursorEvent.target.result;
-      if (cursor) {
-        if (cursor.value.type === "login") {
-          logins.push({ key: cursor.key, value: cursor.value });
-        }
-        cursor.continue();
-      } else {
-        for (const login of logins) {
-          try {
-            console.log("[SW] Reintentando login con:", login.value.usuario);
 
-            const resp = await fetch(`${API_URL}/api/login`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                usuario: login.value.usuario,
-                password: login.value.password
-              })
+      if (!cursor) return;
+
+      if (cursor.value.type === "login") {
+        try {
+          const resp = await fetch(`${API_URL}/api/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              usuario: cursor.value.usuario,
+              password: cursor.value.password,
+            }),
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+
+            self.registration.showNotification("Login exitoso", {
+              body: `Bienvenido de nuevo, ${data.usuario}`,
+              icon: "/assets/img/icon3.png",
             });
 
-            if (resp.ok) {
-              const data = await resp.json();
-              console.log("[SW] Login exitoso (offline → online)");
-
-              self.registration.showNotification("Login exitoso", {
-                body: `Bienvenido de nuevo, ${data.usuario}`,
-                icon: "/assets/img/icon3.png"
-              });
-
-              const txDel = db.transaction("pendingRequests", "readwrite");
-              txDel.objectStore("pendingRequests").delete(login.key);
-            } else if (resp.status === 401) {
-              console.warn(`[SW] Login fallido para ${login.value.usuario}`);
-            }
-          } catch (err) {
-            console.error("[SW] Error reenviando login:", err);
+            const delTx = db.transaction("pendingRequests", "readwrite");
+            delTx.objectStore("pendingRequests").delete(cursor.key);
           }
+        } catch (err) {
+          console.error("[SW] Error reenviando login:", err);
         }
       }
+
+      cursor.continue();
     };
   };
-
-  dbReq.onerror = (err) => console.error("[SW] Error abriendo IndexedDB:", err);
 }
 
 // PUSH
@@ -161,11 +150,11 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(data.titulo || "Notificación", options)
   );
 
-  // Notificación especial para tabla de admin
+  // Admin: actualizar tabla
   if (data.type === "new-user") {
     event.waitUntil(
-      self.clients.matchAll().then(clients => {
-        clients.forEach(client =>
+      self.clients.matchAll().then((clients) => {
+        clients.forEach((client) =>
           client.postMessage({ type: "update-users" })
         );
       })
