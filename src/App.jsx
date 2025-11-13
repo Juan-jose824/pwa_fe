@@ -31,12 +31,38 @@ export default function App({ API_URL }) {
   };
 
   // --------------------------
+  //  Listener genérico: LOGIN SUCCESS 🔥
+  // --------------------------
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        console.log("📩 Mensaje recibido del SW:", event.data);
+
+        if (event.data?.type === "login-success") {
+          const data = event.data;
+
+          const authObj = {
+            token: data.token,
+            usuario: data.usuario,
+            correo: data.correo,
+            role: data.role,
+          };
+
+          setAuth(authObj);
+          localStorage.setItem("auth", JSON.stringify(authObj));
+
+          setView(data.role === "admin" ? "admin" : "dashboard");
+        }
+      });
+    }
+  }, []);
+
+  // --------------------------
   //  Efecto inicial
   // --------------------------
   useEffect(() => {
     initDB();
 
-    // restaurar sesión
     const stored = localStorage.getItem("auth");
     if (stored) {
       const data = JSON.parse(stored);
@@ -67,7 +93,6 @@ export default function App({ API_URL }) {
     setMensaje("Verificando...");
 
     try {
-      // ⛔ IMPORTANTE: si resp.ok = false → lo tratamos como error
       const resp = await fetch(`${API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -77,7 +102,6 @@ export default function App({ API_URL }) {
         return r;
       });
 
-      // login correcto
       const data = await resp.json();
 
       const authObj = {
@@ -115,7 +139,6 @@ export default function App({ API_URL }) {
       tx.oncomplete = () => {
         setMensaje("📦 Login guardado offline. Se enviará al reconectar.");
 
-        // Disparar el Background Sync automático
         if ("serviceWorker" in navigator && "SyncManager" in window) {
           navigator.serviceWorker.ready.then((sw) =>
             sw.sync.register("sync-login")
