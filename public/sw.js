@@ -45,6 +45,20 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  const url = event.request.url;
+
+  // 🚫 No cachear API
+  if (url.includes("/api/")) {
+    event.respondWith(fetch(event.request).catch(() => {
+      return new Response(
+        JSON.stringify({ message: "Sin conexión a internet" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      );
+    }));
+    return;
+  }
+
+  // ✔ Cache first para el resto
   event.respondWith(
     caches.match(event.request).then((cacheResp) => {
       if (cacheResp) return cacheResp;
@@ -62,6 +76,7 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
 
 // SYNC
 self.addEventListener("sync", (event) => {
