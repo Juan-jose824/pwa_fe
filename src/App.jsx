@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import "./App.css";
+import shogun from "./assets/img/shogun.jpg";
 import Register from "./Register";
 import Dashboard from "./Dashboard";
 import UsersAdmin from "./UsersAdmin";
@@ -48,6 +49,7 @@ export default function App({ API_URL }) {
   }, []);
 
   useEffect(() => {
+    // Si hay token guardado en localStorage, restablecer sesión
     const stored = localStorage.getItem("auth");
     if (stored) {
       const data = JSON.parse(stored);
@@ -76,6 +78,7 @@ export default function App({ API_URL }) {
         setAuth(authObj);
         localStorage.setItem("auth", JSON.stringify(authObj));
 
+        // Suscribir para push y enviar subscribe al backend con token
         if ("serviceWorker" in navigator) {
           const registro = await navigator.serviceWorker.ready;
           if (Notification.permission === "default") await Notification.requestPermission();
@@ -192,8 +195,7 @@ export default function App({ API_URL }) {
   return (
     <div className="login-page">
       <div className="login-card">
-        {/* ✅ Imagen servida desde /public */}
-        <img src="/assets/img/shogun.jpg" alt="Logo" className="login-logo" />
+        <img src={shogun} alt="Logo" className="login-logo" />
         <h2 className="login-title">Bienvenido 👋</h2>
         <p className="login-subtitle">Inicia sesión para continuar</p>
 
