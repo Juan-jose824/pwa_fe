@@ -51,7 +51,6 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(event.request)
         .then((resp) => {
-          // ⚠️ Filtrar requests no http(s)
           if (!event.request.url.startsWith("http")) return resp;
 
           return caches.open(DYNAMIC_CACHE).then((cache) => {
@@ -94,7 +93,6 @@ async function syncPendingLogins() {
       } else {
         for (const login of logins) {
           try {
-            // ✅ Mostrar claramente qué login se reintenta
             console.log("[SW] Reintentando login con:", login.value.usuario, login.value.password);
 
             const resp = await fetch(`${API_URL}/api/login`, {
@@ -110,13 +108,11 @@ async function syncPendingLogins() {
               const data = await resp.json();
               console.log("[SW] Login exitoso (offline → online)");
 
-              // Notificar al usuario
               self.registration.showNotification("Login exitoso", {
                 body: `Bienvenido de nuevo, ${data.usuario}`,
                 icon: "/assets/img/icon3.png"
               });
 
-              // Borrar login reenviado de IndexedDB
               const txDel = db.transaction("pendingRequests", "readwrite");
               txDel.objectStore("pendingRequests").delete(login.key);
             } else if (resp.status === 401) {
@@ -147,4 +143,13 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.titulo || "Notificación", options)
   );
+
+  // Avisar al frontend si es un push de tipo "new-user"
+  if (data.type === "new-user") {
+    event.waitUntil(
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => client.postMessage({ type: "update-users" }));
+      })
+    );
+  }
 });

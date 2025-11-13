@@ -50,6 +50,15 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
 
   useEffect(() => {
     cargarUsuarios();
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "update-users") {
+          console.log("[SW] Mensaje recibido: actualizar tabla de usuarios");
+          cargarUsuarios();
+        }
+      });
+    }
   }, []);
 
   return (

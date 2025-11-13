@@ -1,12 +1,10 @@
-// App.jsx
 import { useState, useEffect } from "react";
 import "./App.css";
 import Register from "./Register";
 import Dashboard from "./Dashboard";
 import UsersAdmin from "./UsersAdmin";
 
-// 🔑 Clave pública VAPID desde .env
-const publicKey = import.meta.env.VITE_PUBLIC_KEY;
+const publicKey = import.meta.env.VITE_PUBLIC_KEY; // clave VAPID pública
 
 export default function App({ API_URL }) {
   const [usuario, setUsuario] = useState("");
@@ -14,7 +12,7 @@ export default function App({ API_URL }) {
   const [mensaje, setMensaje] = useState("");
   const [pendientes, setPendientes] = useState([]);
   const [view, setView] = useState("login"); // login | register | dashboard | admin
-  const [auth, setAuth] = useState(null); // { token, usuario, correo, role }
+  const [auth, setAuth] = useState(null);
 
   // Inicializar IndexedDB
   const initDB = () => {
@@ -49,15 +47,25 @@ export default function App({ API_URL }) {
   useEffect(() => {
     initDB();
     cargarPendientes();
-  }, []);
 
-  useEffect(() => {
-    // Si hay token guardado en localStorage, restablecer sesión
+    // Restaurar sesión si hay token en localStorage
     const stored = localStorage.getItem("auth");
     if (stored) {
       const data = JSON.parse(stored);
       setAuth(data);
       setView(data.role === "admin" ? "admin" : "dashboard");
+    }
+
+    // Escuchar mensajes del SW (ej: new-user push)
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "update-users" && auth?.role === "admin") {
+          console.log("[SW] Actualizando tabla de usuarios...");
+          // Esto forzará recarga de UsersAdmin
+          setView(""); // desmontar
+          setTimeout(() => setView("admin"), 0); // volver a montar
+        }
+      });
     }
   }, []);
 
@@ -81,68 +89,72 @@ export default function App({ API_URL }) {
         setAuth(authObj);
         localStorage.setItem("auth", JSON.stringify(authObj));
 
-        // Suscribir para push y enviar subscribe al backend con token
-        if ("serviceWorker" in navigator) {
-          try {
-            const registro = await navigator.serviceWorker.ready;
-            let sub = await registro.pushManager.getSubscription();
+        await registrarPush(data.token);
 
-            if (!sub) {
-              if (Notification.permission === "default") await Notification.requestPermission();
-              if (Notification.permission === "granted") {
-                sub = await registro.pushManager.subscribe({
-                  userVisibleOnly: true,
-                  applicationServerKey: urlBase64ToUint8Array(publicKey)
-                });
-                console.log("Nueva suscripción push:", sub.toJSON());
-              }
-            } else {
-              console.log("Suscripción push existente:", sub.toJSON());
-            }
-
-            if (sub) {
-              await fetch(`${API_URL}/api/subscribe`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${data.token}`
-                },
-                body: JSON.stringify({ subscription: sub.toJSON() })
-              });
-              console.log("[Push] Suscripción enviada al backend");
-            }
-          } catch (err) {
-            console.error("Error suscribiendo push:", err);
-          }
-        }
-
-        if (data.role === "admin") setView("admin");
-        else setView("dashboard");
+        setView(data.role === "admin" ? "admin" : "dashboard");
       } else {
         const data = await resp.json();
         setMensaje(data.message || "Usuario o contraseña incorrectos");
       }
     } catch (err) {
-      setMensaje("⚠️ Conexión perdida, guardando login offline...");
-      const dbReq = indexedDB.open("database", 1);
-      dbReq.onsuccess = (event) => {
-        const db = event.target.result;
-        const tx = db.transaction("pendingRequests", "readwrite");
-        const store = tx.objectStore("pendingRequests");
-        store.add({ type: "login", usuario, password });
-        tx.oncomplete = async () => {
-          setMensaje("📦 Login guardado offline. Se enviará al reconectar.");
-          cargarPendientes();
-          if ("serviceWorker" in navigator && "SyncManager" in window) {
-            const sw = await navigator.serviceWorker.ready;
-            await sw.sync.register("sync-login");
-          }
-        };
-      };
+      console.warn("⚠️ Conexión perdida, guardando login offline...");
+      guardarLoginOffline();
     }
   };
 
-  const enviarLoginsPendientes = async () => {
+  // Guardar login en IndexedDB
+  const guardarLoginOffline = () => {
+    const dbReq = indexedDB.open("database", 1);
+    dbReq.onsuccess = (event) => {
+      const db = event.target.result;
+      const tx = db.transaction("pendingRequests", "readwrite");
+      const store = tx.objectStore("pendingRequests");
+      store.add({ type: "login", usuario, password });
+      tx.oncomplete = () => {
+        setMensaje("📦 Login guardado offline. Se enviará al reconectar.");
+        cargarPendientes();
+        if ("serviceWorker" in navigator && "SyncManager" in window) {
+          navigator.serviceWorker.ready.then(sw => sw.sync.register("sync-login"));
+        }
+      };
+    };
+  };
+
+  // Suscripción push
+  const registrarPush = async (token) => {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      const registro = await navigator.serviceWorker.ready;
+      let sub = await registro.pushManager.getSubscription();
+
+      if (!sub) {
+        if (Notification.permission === "default") await Notification.requestPermission();
+        if (Notification.permission === "granted") {
+          sub = await registro.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey)
+          });
+        }
+      }
+
+      if (sub) {
+        await fetch(`${API_URL}/api/subscribe`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ subscription: sub.toJSON() })
+        });
+        console.log("[Push] Suscripción enviada al backend");
+      }
+    } catch (err) {
+      console.error("Error suscribiendo push:", err);
+    }
+  };
+
+  // Reintentar logins pendientes
+  const enviarLoginsPendientes = () => {
     const dbReq = indexedDB.open("database", 1);
     dbReq.onsuccess = (event) => {
       const db = event.target.result;
@@ -164,18 +176,8 @@ export default function App({ API_URL }) {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ usuario: login.value.usuario, password: login.value.password })
                 });
-
                 if (resp.ok) {
                   const data = await resp.json();
-                  if (data.token) {
-                    await fetch(`${API_URL}/api/send-push`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${data.token}`
-                      }
-                    });
-                  }
                   const delTx = db.transaction("pendingRequests", "readwrite");
                   delTx.objectStore("pendingRequests").delete(login.key);
                 }
@@ -183,7 +185,7 @@ export default function App({ API_URL }) {
                 console.error("Error reenviando login offline", err);
               }
             }
-            setTimeout(cargarPendientes, 500);
+            cargarPendientes();
           })();
         }
       };
@@ -230,7 +232,7 @@ export default function App({ API_URL }) {
   );
 }
 
-// helper
+// Helper
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
