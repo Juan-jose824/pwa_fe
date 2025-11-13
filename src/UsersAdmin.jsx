@@ -49,17 +49,21 @@ export default function UsersAdmin({ API_URL, token, onLogout }) {
   };
 
   useEffect(() => {
-    cargarUsuarios();
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type === "update-users") {
-          console.log("[SW] Mensaje recibido: actualizar tabla de usuarios");
-          cargarUsuarios();
-        }
+  const cargarUsuarios = async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/users`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!resp.ok) throw new Error("Error cargando usuarios");
+      const data = await resp.json();
+      setUsuarios(data);
+    } catch (err) {
+      console.error("Error obteniendo usuarios:", err);
     }
-  }, []);
+  };
+  cargarUsuarios();
+}, [API_URL, token]);
+
 
   return (
     <div className="admin-page">
