@@ -1,8 +1,12 @@
+// App.jsx
 import { useState, useEffect } from "react";
 import "./App.css";
 import Register from "./Register";
 import Dashboard from "./Dashboard";
 import UsersAdmin from "./UsersAdmin";
+
+// 🔑 Clave pública VAPID desde .env
+const publicKey = import.meta.env.VITE_PUBLIC_KEY;
 
 export default function App({ API_URL }) {
   const [usuario, setUsuario] = useState("");
@@ -79,39 +83,38 @@ export default function App({ API_URL }) {
 
         // Suscribir para push y enviar subscribe al backend con token
         if ("serviceWorker" in navigator) {
-  try {
-    const registro = await navigator.serviceWorker.ready;
-    let sub = await registro.pushManager.getSubscription();
+          try {
+            const registro = await navigator.serviceWorker.ready;
+            let sub = await registro.pushManager.getSubscription();
 
-    if (!sub) {
-      if (Notification.permission === "default") await Notification.requestPermission();
-      if (Notification.permission === "granted") {
-        sub = await registro.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey)
-        });
-        console.log("Nueva suscripción push:", sub.toJSON());
-      }
-    } else {
-      console.log("Suscripción push existente:", sub.toJSON());
-    }
+            if (!sub) {
+              if (Notification.permission === "default") await Notification.requestPermission();
+              if (Notification.permission === "granted") {
+                sub = await registro.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+                console.log("Nueva suscripción push:", sub.toJSON());
+              }
+            } else {
+              console.log("Suscripción push existente:", sub.toJSON());
+            }
 
-    if (sub) {
-      await fetch(`${API_URL}/api/subscribe`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${data.token}`
-        },
-        body: JSON.stringify({ subscription: sub.toJSON() })
-      });
-      console.log("[Push] Suscripción enviada al backend");
-    }
-  } catch (err) {
-    console.error("Error suscribiendo push:", err);
-  }
-}
-
+            if (sub) {
+              await fetch(`${API_URL}/api/subscribe`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${data.token}`
+                },
+                body: JSON.stringify({ subscription: sub.toJSON() })
+              });
+              console.log("[Push] Suscripción enviada al backend");
+            }
+          } catch (err) {
+            console.error("Error suscribiendo push:", err);
+          }
+        }
 
         if (data.role === "admin") setView("admin");
         else setView("dashboard");
