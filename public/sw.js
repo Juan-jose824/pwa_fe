@@ -1,6 +1,7 @@
 const API_URL = "https://pwa-back-k42e.onrender.com";
 const APP_SHELL_CACHE = "appShell_v3";
 const DYNAMIC_CACHE = "dynamic_v3";
+
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -43,6 +44,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = event.request.url;
 
+  // For API routes, try network and return JSON error on failure
   if (url.includes("/api/")) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -55,9 +57,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Cache-first for static assets
   event.respondWith(
     caches.match(event.request).then((cacheResp) => {
       if (cacheResp) return cacheResp;
+
       return fetch(event.request)
         .then((resp) => {
           if (!event.request.url.startsWith("http")) return resp;
@@ -73,18 +77,21 @@ self.addEventListener("fetch", (event) => {
 
 // SYNC EVENT
 self.addEventListener("sync", (event) => {
-  if (event.tag === "sync-login") {
-    event.waitUntil(syncPendingLogins());
+  if (event.tag === "sync-login" || event.tag === "sync-comentarios") {
+    event.waitUntil(syncPending());
   }
 });
 
-// LOGIN OFFLINE
-async function syncPendingLogins() {
-  console.log("[SW] Comenzando sincronización...");
+// Combined sync handler for pending logins & comentarios
+async function syncPending() {
+  console.log("[SW] Comenzando sincronización general...");
   const db = await openDB();
   const pending = await readAllPending(db);
-  for (const item of pending) {
-    if (item.type !== "login") continue;
+
+  // First handle logins (so the client can be notified/receive token),
+  // then handle comentarios
+  // Process logins
+  for (const item of pending.filter(p => p.type === "login")) {
     try {
       console.log("[SW] Reintentando login:", item.usuario);
       const resp = await fetch(`${API_URL}/api/login`, {
@@ -92,16 +99,22 @@ async function syncPendingLogins() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usuario: item.usuario, password: item.password })
       });
-      if (!resp.ok) throw new Error("Error en login offline");
-      const data = await resp.json();
 
+      if (!resp.ok) {
+        console.warn("[SW] Login remoto respondió no-OK:", resp.status);
+        continue;
+      }
+
+      const data = await resp.json();
       await deletePending(db, item.id);
 
+      // Local notification
       self.registration.showNotification("Login exitoso", {
         body: `Bienvenido de nuevo, ${data.usuario}`,
         icon: "/assets/img/icon3.png"
       });
 
+      // Notify clients so frontend restores session (include full payload)
       notifyClients({
         type: "login-success",
         token: data.token,
@@ -109,8 +122,45 @@ async function syncPendingLogins() {
         correo: data.correo,
         role: data.role || data.rol
       });
+
     } catch (err) {
-      console.error("[SW] Error reintentando:", err);
+      console.error("[SW] Error reintentando login:", err);
+    }
+  }
+
+  // Then process comentarios
+  for (const item of pending.filter(p => p.type === "comentario")) {
+    try {
+      console.log("[SW] Reintentando enviar comentario:", item.usuario, item.texto);
+      const resp = await fetch(`${API_URL}/api/comentarios`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          usuario: item.usuario,
+          texto: item.texto,
+          fecha: item.fecha
+        })
+      });
+
+      if (!resp.ok) {
+        console.warn("[SW] /api/comentarios respondió no-OK:", resp.status);
+        continue;
+      }
+
+      const data = await resp.json();
+      await deletePending(db, item.id);
+
+      // Notify user locally
+      self.registration.showNotification("Comentario enviado", {
+        body: `Tu comentario fue publicado: "${item.texto.slice(0, 30)}"`,
+        icon: "/assets/img/icon3.png"
+      });
+
+      // Optionally inform pages to refresh comentarios
+      notifyClients({ type: "comentario-sent", comentarioId: data.insertedId, usuario: item.usuario });
+
+    } catch (err) {
+      console.error("[SW] Error reenviando comentario:", err);
     }
   }
 }
@@ -147,7 +197,7 @@ function deletePending(db, id) {
   });
 }
 
-// NOTIFY CLIENTS
+// Notify all controlled clients (pages)
 function notifyClients(msg) {
   self.clients.matchAll().then((clients) => {
     clients.forEach((client) => client.postMessage(msg));
@@ -164,6 +214,7 @@ self.addEventListener("push", (event) => {
     image: "/assets/img/shogun.jpg",
     vibrate: [200, 100, 200]
   };
+
   event.waitUntil(
     self.registration.showNotification(data.titulo || "Notificación", options)
   );
