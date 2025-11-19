@@ -244,7 +244,6 @@ export default function App({ API_URL }) {
           />
           <div style={{ marginTop: 8 }}>
             <button onClick={enviarComentario}>Enviar comentario</button>
-            <button onClick={() => loadComentarios(auth.usuario)} style={{ marginLeft: 8 }}>Actualizar comentarios</button>
           </div>
 
           <h4 style={{ marginTop: 12 }}>Comentarios</h4>
